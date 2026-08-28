@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>popup</title>
+
+<!-- Server replaces the literal token below with a JSON object before serving GET /.
+     Shape: {"mode":"file|dir|proxy","name":"x.md","path":"rel/x.md","ext":".md","size":123,
+             "entries":[{"name":"a.md","path":"a.md","ext":".md","size":1,"dir":false}]} -->
+<script>window.POPUP = __POPUP_CONFIG__;</script>
+
+<!-- AIDEV: every CDN asset is pinned to an exact version with a real SRI hash
+     (sha384, computed from the served bytes 2026-08-27). Floating versions would
+     silently invalidate the hashes; bump version + hash together. -->
+<link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.5.1/github-markdown.min.css"
+      integrity="sha384-e9Z5Y4NP8q09WWmORPPBa0O1ZwQbbp3DDIFLatAwPCB7uxLR46YRAGw/QI/mxsBj"
+      crossorigin="anonymous" referrerpolicy="no-referrer">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous" referrerpolicy="no-referrer">
+<style>
+  :root { color-scheme: light dark; --fg:#c9d1d9; --bg:#0d1117; --dim:#8b949e; --line:#30363d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+  #bar { display:flex; gap:12px; align-items:center; padding:8px 16px;
+         border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:5; }
+  #bar b { font-weight:600; }
+  #bar .dim { color:var(--dim); font-size:12px; }
+  #bar a { color:#58a6ff; text-decoration:none; margin-left:auto; }
+  #app { padding:24px; max-width:1100px; margin:0 auto; }
+  #app.wide { max-width:none; }
+  .markdown-body { background:transparent; color:var(--fg); }
+  pre.plain { background:#161b22; padding:12px; border-radius:6px; overflow:auto; }
+  table.grid { border-collapse:collapse; font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace; width:100%; }
+  table.grid th, table.grid td { border:1px solid var(--line); padding:3px 8px; text-align:left;
+                                 white-space:nowrap; max-width:340px; overflow:hidden; text-overflow:ellipsis; }
+  table.grid th { background:#161b22; position:sticky; top:0; }
+  .scroll { overflow:auto; max-height:72vh; border:1px solid var(--line); border-radius:6px; }
+  .msg { color:var(--dim); padding:8px 0; }
+  .err { color:#f85149; white-space:pre-wrap; }
+  #sql { display:flex; gap:8px; margin:12px 0; }
+  #sql input { flex:1; font:12px ui-monospace,Menlo,monospace; padding:6px 8px;
+               background:#0d1117; color:var(--fg); border:1px solid var(--line); border-radius:6px; }
+  #sql button, .btn { padding:6px 12px; border:1px solid var(--line); border-radius:6px;
+                      background:#21262d; color:var(--fg); cursor:pointer; }
+  ul.entries { list-style:none; padding:0; }
+  ul.entries li { padding:4px 0; border-bottom:1px solid var(--line); display:flex; gap:12px; }
+  ul.entries a { color:#58a6ff; text-decoration:none; flex:1; }
+  ul.entries span { color:var(--dim); font-size:12px; }
+  iframe.native { width:100%; height:82vh; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  img.native { max-width:100%; }
+  .mermaid { background:#fff; border-radius:6px; padding:8px; }
+  .fits-hdu { margin-bottom:24px; }
+  .fits-hdu h3 { font:600 13px ui-monospace,Menlo,monospace; color:var(--dim); margin:0 0 6px; }
+</style>
+</head>
+<body>
+<header id="bar">
+  <b id="bar-name">—</b>
+  <span class="dim" id="bar-meta"></span>
+  <a id="bar-raw" href="#" download>download raw</a>
+</header>
+<main id="app" class="markdown-body"></main>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"
+        integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"
+        integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"
+        integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+"use strict";
+(function () {
+  const CFG = window.POPUP || {};
+  let version = 0;
+
+  // ---------- CDN registry (lazy-loaded libs; static <script> tags above carry their own SRI) ----------
+  const LAZY = {
+    mermaid: {
+      url: "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js",
+      sri: "sha384-WmdflGW9aGfoBdHc4rRyWzYuAjEmDwMdGdiPNacbwfGKxBW/SO6guzuQ76qjnSlr",
+    },
+    notebook: {
+      // AIDEV: cdnjs has no notebookjs mirror; jsdelivr npm origin, pinned + SRI.
+      url: "https://cdn.jsdelivr.net/npm/notebookjs@0.8.3/notebook.min.js",
+      sri: "sha384-mn4lLiKITElZwtBaUw17mY+tFOqTJ9/oSm2AwhOidI2IL7b5/AecG2KIjmSg+c+X",
+    },
+    ansiup: {
+      url: "https://cdn.jsdelivr.net/npm/ansi_up@6.0.2/ansi_up.js",
+      sri: "sha384-eP6G0IklLAGlS7n6+Qa6ebBn4cnmmv6X9qsnhY8toWJc6y7C4uFWOb13Dk2xa/iq",
+    },
+  };
+  // AIDEV: duckdb-wasm is a dynamic ESM import; the `integrity` attribute only exists on
+  // <script>/<link> elements, so SRI cannot be applied to import(). Version is pinned exactly
+  // and the worker/wasm bundles are resolved from that same pinned tree by getJsDelivrBundles().
+  const DUCKDB_ESM = "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm";
+
+  function loadScript(url, sri) {
+    return new Promise((res, rej) => {
+      const existing = document.querySelector('script[src="' + url + '"]');
+      if (existing) { existing.dataset.ok ? res() : existing.addEventListener("load", () => res()); return; }
+      const s = document.createElement("script");
+      s.src = url;
+      s.crossOrigin = "anonymous";
+      s.referrerPolicy = "no-referrer";
+      if (sri) s.integrity = sri;
+      s.onload = () => { s.dataset.ok = "1"; res(); };
+      s.onerror = () => rej(new Error("failed to load " + url));
+      document.head.appendChild(s);
+    });
+  }
+
+  // ---------- helpers ----------
+  const CODE_EXTS = new Set([".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".sql", ".yaml", ".yml",
+    ".json", ".sh", ".bash", ".zsh", ".c", ".h", ".cc", ".cpp", ".hpp", ".rs", ".go", ".java", ".kt",
+    ".rb", ".php", ".pl", ".lua", ".r", ".jl", ".swift", ".scala", ".toml", ".ini", ".cfg", ".conf",
+    ".xml", ".css", ".scss", ".dockerfile", ".make", ".mk", ".tf", ".proto", ".graphql", ".vim", ".el"]);
+  const IMG_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".ico", ".svg"]);
+  const TEXT_EXTS = new Set([".txt", ".log", ".text", ".rst", ".env", ".gitignore", ".license", ""]);
+
+  function pickRenderer(ext) {
+    ext = (ext || "").toLowerCase();
+    if (ext === ".md" || ext === ".markdown") return "markdown";
+    if (ext === ".csv" || ext === ".tsv") return "csv";
+    if (ext === ".parquet" || ext === ".pq") return "parquet";
+    if (ext === ".ipynb") return "notebook";
+    if (ext === ".fits" || ext === ".fit" || ext === ".fts" || ext === ".fz" || ext === ".asdf") return "fits";
+    if (ext === ".pdf") return "pdf";
+    if (ext === ".html" || ext === ".htm") return "html";
+    if (IMG_EXTS.has(ext)) return "image";
+    if (CODE_EXTS.has(ext)) return "code";
+    if (TEXT_EXTS.has(ext)) return "text";
+    return "download";  // never guess
+  }
+  window.popupPickRenderer = pickRenderer;  // exposed for the smoke test
+
+  function rawUrl(path, bust) {
+    const p = String(path || "").split("/").map(encodeURIComponent).join("/");
+    return "/raw/" + p + (bust ? "?v=" + version : "");
+  }
+  function absUrl(u) { return new URL(u, location.href).href; }
+  function human(n) {
+    if (n == null) return "";
+    const u = ["B", "KB", "MB", "GB", "TB"];
+    let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (i ? n.toFixed(1) : n) + " " + u[i];
+  }
+  function el(tag, attrs, text) {
+    const e = document.createElement(tag);
+    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function fail(root, e) {
+    root.appendChild(el("div", { class: "err" }, String((e && e.stack) || e)));
+  }
+  async function fetchText(url) {
+    const r = await fetch(url, { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status + " for " + url);
+    return r.text();
+  }
+
+  // ---------- renderers ----------
+  async function renderMarkdown(root, url) {
+    const src = await fetchText(url);
+    const html = DOMPurify.sanitize(marked.parse(src));
+    root.innerHTML = html;
+    // Mermaid is 3.3 MB: only fetch it when the document actually contains a mermaid fence.
+    const blocks = root.querySelectorAll("code.language-mermaid");
+    if (blocks.length) {
+      await loadScript(LAZY.mermaid.url, LAZY.mermaid.sri);
+      blocks.forEach((c) => {
+        const d = el("div", { class: "mermaid" }, c.textContent);
+        c.closest("pre").replaceWith(d);
+      });
+      mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
+      await mermaid.run({ nodes: root.querySelectorAll("div.mermaid") });
+    }
+    root.querySelectorAll("pre code").forEach((c) => hljs.highlightElement(c));
+  }
+
+  async function renderCode(root, url, ext) {
+    const src = await fetchText(url);
+    const lang = (ext || "").replace(/^\./, "");
+    const code = el("code", null, src);
+    if (lang && hljs.getLanguage(lang)) code.className = "language-" + lang;
+    const pre = el("pre", { class: "plain" });
+    pre.appendChild(code);
+    root.appendChild(pre);
+    hljs.highlightElement(code);   // falls back to auto-detect when the class is absent
+  }
+
+  function renderText(root, url) {
+    return fetchText(url).then((t) => root.appendChild(el("pre", { class: "plain" }, t)));
+  }
+
+  function renderNative(root, url, kind) {
+    if (kind === "image") { root.appendChild(el("img", { class: "native", src: url, alt: CFG.name || "" })); return; }
+    // README: "browser native passthrough" / "HTML served as-is" — no sandbox attr,
+    // a sandboxed iframe breaks the exact apps (and PDF viewers) this is meant to show.
+    root.appendChild(el("iframe", { class: "native", src: url }));
+    const p = el("p");
+    p.appendChild(el("a", { href: url, target: "_blank", rel: "noopener" }, "open in new tab"));
+    root.appendChild(p);
+  }
+
+  function renderDownload(root, url, name) {
+    root.appendChild(el("p", { class: "msg" }, "No renderer for this file type."));
+    root.appendChild(el("a", { class: "btn", href: url, download: name || "" }, "Download " + (name || "file")));
+  }
+
+  function renderDir(root, entries) {
+    const ul = el("ul", { class: "entries" });
+    (entries || []).forEach((e) => {
+      const path = e.path || e.name;
+      const li = el("li");
+      // Directory entries route back through the shell (server serves GET /<path>);
+      // that keeps "each entry gets its renderer" without duplicating dispatch here.
+      li.appendChild(el("a", { href: "/" + String(path).split("/").map(encodeURIComponent).join("/") },
+        (e.dir ? "📁 " : "📄 ") + (e.name || path)));
+      li.appendChild(el("span", null, e.dir ? "" : human(e.size)));
+      ul.appendChild(li);
+    });
+    if (!ul.children.length) ul.appendChild(el("li", { class: "msg" }, "(empty)"));
+    root.appendChild(ul);
+  }
+
+  async function renderNotebook(root, url) {
+    await loadScript(LAZY.ansiup.url, LAZY.ansiup.sri).catch(() => {});
+    await loadScript(LAZY.notebook.url, LAZY.notebook.sri);
+    nb.markdown = (t) => DOMPurify.sanitize(marked.parse(t));
+    nb.highlighter = (text, pre, code, lang) => {
+      if (code) { code.textContent = text; if (lang && hljs.getLanguage(lang)) code.className = "language-" + lang; hljs.highlightElement(code); return code.innerHTML; }
+      return text;
+    };
+    const ipynb = JSON.parse(await fetchText(url));
+    root.appendChild(nb.parse(ipynb).render());
+  }
+
+  async function renderFits(root, url) {
+    // /renderers/fits.js is served by popup.py (from disk in dev, from the embedded
+    // FITS_JS constant otherwise). Same-origin, so no SRI needed.
+    await loadScript("/renderers/fits.js");
+    await window.popupFits.render(root, url);
+  }
+
+  // ---------- DuckDB-WASM (csv >= 50 KB, parquet at any size) ----------
+  let dbPromise = null;
+  async function duckdb() {
+    if (!dbPromise) {
+      dbPromise = (async () => {
+        const duck = await import(DUCKDB_ESM);
+        const bundle = await duck.selectBundle(duck.getJsDelivrBundles());
+        const workerUrl = URL.createObjectURL(
+          new Blob(['importScripts("' + bundle.mainWorker + '");'], { type: "text/javascript" }));
+        const db = new duck.AsyncDuckDB(new duck.ConsoleLogger(duck.LogLevel.WARNING), new Worker(workerUrl));
+        await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+        URL.revokeObjectURL(workerUrl);
+        return { duck, db };
+      })();
+    }
+    return dbPromise;
+  }
+
+  function drawTable(host, table) {
+    host.innerHTML = "";
+    const t = el("table", { class: "grid" });
+    const cols = table.schema.fields.map((f) => f.name);
+    const thead = el("thead"), hr = el("tr");
+    cols.forEach((c) => hr.appendChild(el("th", null, c)));
+    thead.appendChild(hr); t.appendChild(thead);
+    const tb = el("tbody");
+    for (const row of table.toArray()) {
+      const tr = el("tr");
+      const o = row.toJSON ? row.toJSON() : row;
+      cols.forEach((c) => {
+        const v = o[c];
+        tr.appendChild(el("td", null, v == null ? "" : (typeof v === "bigint" ? v.toString() : String(v))));
+      });
+      tb.appendChild(tr);
+    }
+    t.appendChild(tb);
+    const wrap = el("div", { class: "scroll" }); wrap.appendChild(t); host.appendChild(wrap);
+  }
+
+  async function renderTabular(root, url, kind) {
+    const status = el("div", { class: "msg" }, "loading DuckDB-WASM…");
+    root.appendChild(status);
+    const { duck, db } = await duckdb();
+    const alias = "popup_" + version + "_" + (CFG.name || "data").replace(/[^\w.]/g, "_");
+    // HTTP protocol => duckdb issues HEAD + ranged GETs against /raw/, so a multi-GB
+    // parquet only transfers the footer + the column chunks a query touches.
+    await db.registerFileURL(alias, absUrl(url), duck.DuckDBDataProtocol.HTTP, false);
+    const conn = await db.connect();
+    const from = kind === "parquet"
+      ? "read_parquet('" + alias + "')"
+      : "read_csv_auto('" + alias + "')";
+
+    const host = el("div");
+    const bar = el("div", { id: "sql" });
+    const input = el("input", { value: "SELECT * FROM " + from + " LIMIT 200", spellcheck: "false" });
+    const go = el("button", null, "Run");
+    bar.appendChild(input); bar.appendChild(go);
+    root.appendChild(bar); root.appendChild(host);
+
+    async function run(sql) {
+      status.textContent = "querying…";
+      try {
+        drawTable(host, await conn.query(sql));
+        status.textContent = "";
+      } catch (e) { host.innerHTML = ""; fail(host, e); status.textContent = ""; }
+    }
+    go.onclick = () => run(input.value);
+    input.onkeydown = (ev) => { if (ev.key === "Enter") run(input.value); };
+
+    try {
+      const c = await conn.query("SELECT count(*) AS n FROM " + from);
+      status.textContent = c.toArray()[0].n + " rows";
+    } catch (e) { status.textContent = ""; }
+    await run(input.value);
+  }
+
+  // ---------- dispatch ----------
+  async function render() {
+    version++;
+    const root = document.getElementById("app");
+    root.innerHTML = "";
+    root.className = "markdown-body";
+
+    const name = CFG.name || "";
+    const path = CFG.path || name;
+    document.title = name ? "popup · " + name : "popup";
+    document.getElementById("bar-name").textContent = name || (CFG.mode === "dir" ? "/" : "popup");
+    document.getElementById("bar-meta").textContent =
+      CFG.mode === "dir" ? ((CFG.entries || []).length + " entries") : human(CFG.size);
+
+    if (CFG.mode === "dir") {
+      document.getElementById("bar-raw").style.display = "none";
+      renderDir(root, CFG.entries);
+      return;
+    }
+
+    const url = rawUrl(path, true);
+    const link = document.getElementById("bar-raw");
+    link.href = url; link.setAttribute("download", name);
+
+    const kind = pickRenderer(CFG.ext || ("." + name.split(".").pop()));
+    try {
+      switch (kind) {
+        case "markdown": return await renderMarkdown(root, url);
+        case "code":     return await renderCode(root, url, CFG.ext);
+        case "text":     return await renderText(root, url);
+        case "notebook": return await renderNotebook(root, url);
+        case "fits":     root.className = ""; return await renderFits(root, url);
+        case "image":
+        case "pdf":
+        case "html":     root.className = "wide"; return renderNative(root, url, kind);
+        case "csv":
+          // README: plain <pre> under 50 KB — no reason to boot a 30 MB WASM engine for a small file.
+          if ((CFG.size || 0) < 50 * 1024) return await renderText(root, url);
+          root.className = "wide"; return await renderTabular(root, url, "csv");
+        case "parquet":  root.className = "wide"; return await renderTabular(root, url, "parquet");
+        default:         return renderDownload(root, url, name);
+      }
+    } catch (e) { fail(root, e); }
+  }
+
+  // ---------- live reload ----------
+  function connectSSE() {
+    if (!window.EventSource || CFG.mode === "proxy") return;
+    const es = new EventSource("/events");
+    es.addEventListener("reload", () => render());
+    es.onerror = () => { /* browser auto-reconnects; server may simply be gone */ };
+  }
+
+  render().then(connectSSE);
+})();
+</script>
+</body>
+</html>

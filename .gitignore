@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+# popup's own smoke-test scratch
+.smoke.log
+.smoke.html
+.smoke.pid
+# agent/orchestration state, not part of the tool
+.omc/
+.covhook/
