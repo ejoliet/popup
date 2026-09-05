@@ -1,4 +1,5 @@
 # popup
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/I3I5BSV5J)
 
 > Ephemeral URL for any file, folder, S3 object, or local web app — one command, smart rendering, dies on Ctrl-C.
 
