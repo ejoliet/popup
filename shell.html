@@ -56,6 +56,33 @@
   .mermaid { background:#fff; border-radius:6px; padding:8px; }
   .fits-hdu { margin-bottom:24px; }
   .fits-hdu h3 { font:600 13px ui-monospace,Menlo,monospace; color:var(--dim); margin:0 0 6px; }
+  /* sqlite console (harlequin-ish: schema tree left, editor + results right) */
+  .db { display:grid; grid-template-columns:280px minmax(0,1fr); gap:16px; align-items:start; }
+  .db-side { border:1px solid var(--line); border-radius:6px; max-height:82vh; overflow:auto; }
+  .db-side h3 { margin:0; padding:8px 10px; font:600 11px/1.4 ui-monospace,Menlo,monospace;
+                color:var(--dim); text-transform:uppercase; letter-spacing:.06em;
+                border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); }
+  .db-obj { border-bottom:1px solid var(--line); }
+  .db-obj > summary { cursor:pointer; padding:5px 10px; font:12px ui-monospace,Menlo,monospace;
+                      color:#79c0ff; list-style:none; display:flex; gap:6px; align-items:baseline; }
+  .db-obj > summary::-webkit-details-marker { display:none; }
+  .db-obj > summary:hover { background:#161b22; }
+  .db-obj > summary .n { color:var(--dim); font-size:11px; margin-left:auto; }
+  .db-cols { list-style:none; margin:0; padding:0 0 6px; }
+  .db-cols li { padding:2px 10px 2px 24px; font:11px ui-monospace,Menlo,monospace; display:flex; gap:8px; }
+  .db-cols .ty { color:var(--dim); margin-left:auto; }
+  .db-cols .pk { color:#d29922; }
+  .db-main { min-width:0; }
+  .db-ex { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 10px; }
+  .db-ex button { font:11px ui-monospace,Menlo,monospace; padding:4px 8px; border:1px solid var(--line);
+                  border-radius:6px; background:#161b22; color:var(--fg); cursor:pointer; }
+  .db-ex button:hover { border-color:#58a6ff; }
+  textarea.sqlbox { width:100%; min-height:88px; resize:vertical; padding:8px 10px; border-radius:6px;
+                    border:1px solid var(--line); background:#0d1117; color:var(--fg);
+                    font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .db-run { display:flex; gap:10px; align-items:center; margin:8px 0; }
+  .db-ddl { margin:0; padding:8px 10px; background:#161b22; border-radius:6px;
+            font:11px/1.4 ui-monospace,Menlo,monospace; overflow:auto; }
 </style>
 </head>
 <body>
@@ -97,6 +124,14 @@
       sri: "sha384-eP6G0IklLAGlS7n6+Qa6ebBn4cnmmv6X9qsnhY8toWJc6y7C4uFWOb13Dk2xa/iq",
     },
   };
+  // AIDEV: sql.js is the SQLite engine (~50 KB js + 660 KB wasm). The .js gets SRI; the
+  // .wasm is fetched by emscripten's own loader via locateFile, which has no SRI hook —
+  // same limitation as duckdb below. Both URLs are pinned to an exact version.
+  const SQLJS = {
+    url: "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.13.0/sql-wasm.js",
+    sri: "sha384-DJiKBv+LC78e5InEB+MvFIAH079ynMK/ERTtFUCpDzXhH1Bht7aVfpg3yOVsuYl9",
+    base: "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.13.0/",
+  };
   // AIDEV: duckdb-wasm is a dynamic ESM import; the `integrity` attribute only exists on
   // <script>/<link> elements, so SRI cannot be applied to import(). Version is pinned exactly
   // and the worker/wasm bundles are resolved from that same pinned tree by getJsDelivrBundles().
@@ -130,6 +165,7 @@
     if (ext === ".md" || ext === ".markdown") return "markdown";
     if (ext === ".csv" || ext === ".tsv") return "csv";
     if (ext === ".parquet" || ext === ".pq") return "parquet";
+    if (ext === ".sqlite" || ext === ".sqlite3" || ext === ".db") return "sqlite";
     if (ext === ".ipynb") return "notebook";
     if (ext === ".fits" || ext === ".fit" || ext === ".fts" || ext === ".fz" || ext === ".asdf") return "fits";
     if (ext === ".pdf") return "pdf";
@@ -269,25 +305,36 @@
     return dbPromise;
   }
 
-  function drawTable(host, table) {
+  function cell(v) {
+    if (v == null) return "";
+    if (typeof v === "bigint") return v.toString();
+    if (v instanceof Uint8Array) return "<blob " + human(v.length) + ">";
+    return String(v);
+  }
+
+  function drawRows(host, cols, rows) {
     host.innerHTML = "";
     const t = el("table", { class: "grid" });
-    const cols = table.schema.fields.map((f) => f.name);
     const thead = el("thead"), hr = el("tr");
     cols.forEach((c) => hr.appendChild(el("th", null, c)));
     thead.appendChild(hr); t.appendChild(thead);
     const tb = el("tbody");
-    for (const row of table.toArray()) {
+    for (const row of rows) {
       const tr = el("tr");
-      const o = row.toJSON ? row.toJSON() : row;
-      cols.forEach((c) => {
-        const v = o[c];
-        tr.appendChild(el("td", null, v == null ? "" : (typeof v === "bigint" ? v.toString() : String(v))));
-      });
+      row.forEach((v) => tr.appendChild(el("td", null, cell(v))));
       tb.appendChild(tr);
     }
     t.appendChild(tb);
     const wrap = el("div", { class: "scroll" }); wrap.appendChild(t); host.appendChild(wrap);
+  }
+
+  function drawTable(host, table) {
+    const cols = table.schema.fields.map((f) => f.name);
+    const rows = table.toArray().map((row) => {
+      const o = row.toJSON ? row.toJSON() : row;
+      return cols.map((c) => o[c]);
+    });
+    drawRows(host, cols, rows);
   }
 
   async function renderTabular(root, url, kind) {
@@ -325,6 +372,123 @@
       status.textContent = c.toArray()[0].n + " rows";
     } catch (e) { status.textContent = ""; }
     await run(input.value);
+  }
+
+  // ---------- SQLite (sql.js) ----------
+  const MAX_DRAW = 2000;          // rows painted per result; the DOM, not SQLite, is the limit
+  const MAX_DB = 256 * 1024 * 1024;
+
+  function qid(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
+
+  function sqlPre(text) {
+    const code = el("code", { class: "language-sql" }, text);
+    const pre = el("pre", { class: "db-ddl" });
+    pre.appendChild(code);
+    hljs.highlightElement(code);
+    return pre;
+  }
+
+  async function renderSqlite(root, url) {
+    const status = el("div", { class: "msg" }, "loading SQLite (sql.js)…");
+    root.appendChild(status);
+    // AIDEV: sql.js has no ranged/lazy mode — the whole database is copied into wasm
+    // memory, so a huge file would just wedge the tab. Offer the bytes instead.
+    if ((CFG.size || 0) > MAX_DB) {
+      status.textContent = "";
+      root.appendChild(el("p", { class: "msg" }, "Database is " + human(CFG.size) +
+        "; the in-browser engine loads it fully into memory. Download it instead:"));
+      root.appendChild(el("a", { class: "btn", href: url, download: CFG.name || "" },
+        "Download " + (CFG.name || "database")));
+      return;
+    }
+
+    await loadScript(SQLJS.url, SQLJS.sri);
+    const SQL = await initSqlJs({ locateFile: (f) => SQLJS.base + f });
+    const r = await fetch(url, { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status + " for " + url);
+    const db = new SQL.Database(new Uint8Array(await r.arrayBuffer()));
+    const q = (sql) => { const res = db.exec(sql); return res.length ? res[res.length - 1] : { columns: [], values: [] }; };
+
+    const layout = el("div", { class: "db" });
+    const side = el("aside", { class: "db-side" });
+    const main = el("div", { class: "db-main" });
+    layout.appendChild(side); layout.appendChild(main); root.appendChild(layout);
+
+    const editor = el("textarea", { class: "sqlbox", spellcheck: "false" });
+    const runBtn = el("button", { class: "btn" }, "Run  ⌘/Ctrl+↵");
+    const note = el("span", { class: "msg" });
+    const runbar = el("div", { class: "db-run" });
+    const examples = el("div", { class: "db-ex" });
+    const host = el("div");
+    runbar.appendChild(runBtn); runbar.appendChild(note);
+    main.appendChild(examples); main.appendChild(editor); main.appendChild(runbar); main.appendChild(host);
+
+    function run(sql) {
+      editor.value = sql;
+      note.textContent = "querying…";
+      host.innerHTML = "";
+      try {
+        const res = db.exec(sql);
+        const last = res.length ? res[res.length - 1] : null;
+        if (!last) { note.textContent = "OK — " + db.getRowsModified() + " rows modified (in memory only)"; return; }
+        const rows = last.values.slice(0, MAX_DRAW);
+        drawRows(host, last.columns, rows);
+        note.textContent = last.values.length + " rows" +
+          (rows.length < last.values.length ? " (showing first " + MAX_DRAW + ")" : "");
+      } catch (e) { note.textContent = ""; fail(host, e); }
+    }
+    runBtn.onclick = () => run(editor.value);
+    editor.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); run(editor.value); }
+    });
+
+    // ----- schema sidebar -----
+    const objs = q("SELECT type, name, sql FROM sqlite_master " +
+                   "WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY type DESC, name").values;
+    side.appendChild(el("h3", null, objs.length + " tables / views"));
+    objs.forEach(([type, name, ddl], i) => {
+      const d = el("details", { class: "db-obj" });
+      const sum = el("summary");
+      sum.appendChild(el("span", null, (type === "view" ? "◇ " : "▤ ") + name));
+      let n = "";
+      try { n = String(q("SELECT count(*) FROM " + qid(name)).values[0][0]) + " rows"; } catch (e) { /* view may be broken */ }
+      sum.appendChild(el("span", { class: "n" }, n));
+      // Clicking the object both expands it and previews it — harlequin muscle memory.
+      sum.addEventListener("click", () => run("SELECT * FROM " + qid(name) + " LIMIT 100"));
+      d.appendChild(sum);
+      const ul = el("ul", { class: "db-cols" });
+      q("PRAGMA table_info(" + qid(name) + ")").values.forEach(([, cname, ctype, notnull, , pk]) => {
+        const li = el("li");
+        li.appendChild(el("span", { class: pk ? "pk" : "" }, (pk ? "🔑 " : "") + cname));
+        li.appendChild(el("span", { class: "ty" }, (ctype || "?") + (notnull ? " NOT NULL" : "")));
+        ul.appendChild(li);
+      });
+      d.appendChild(ul);
+      if (ddl) d.appendChild(sqlPre(ddl));
+      if (i === 0) d.open = true;
+      side.appendChild(d);
+    });
+
+    // ----- example queries (clickable; they run, so the URL is useful with zero SQL typed) -----
+    const first = objs.length ? objs[0][1] : null;
+    const SCHEMA_SQL = "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name";
+    const ex = [["schema", SCHEMA_SQL]];
+    if (first) {
+      ex.unshift(["preview " + first, "SELECT * FROM " + qid(first) + " LIMIT 100"]);
+      ex.push(["columns of " + first, "SELECT name, type, \"notnull\", pk FROM pragma_table_info('" + String(first).replace(/'/g, "''") + "')"]);
+    }
+    if (objs.length > 1) {
+      ex.push(["row counts", objs.map(([, n]) => "SELECT '" + String(n).replace(/'/g, "''") +
+        "' AS \"table\", count(*) AS rows FROM " + qid(n)).join("\nUNION ALL ")]);
+    }
+    ex.forEach(([label, sql]) => {
+      const b = el("button", null, label);
+      b.onclick = () => run(sql);
+      examples.appendChild(b);
+    });
+
+    status.textContent = "";
+    run(first ? "SELECT * FROM " + qid(first) + " LIMIT 100" : SCHEMA_SQL);
   }
 
   // ---------- dispatch ----------
@@ -367,6 +531,7 @@
           if ((CFG.size || 0) < 50 * 1024) return await renderText(root, url);
           root.className = "wide"; return await renderTabular(root, url, "csv");
         case "parquet":  root.className = "wide"; return await renderTabular(root, url, "parquet");
+        case "sqlite":   root.className = "wide"; return await renderSqlite(root, url);
         default:         return renderDownload(root, url, name);
       }
     } catch (e) { fail(root, e); }

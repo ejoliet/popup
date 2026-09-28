@@ -1,0 +1,37 @@
+# Packaging exists for one reason: `uvx --from git+https://github.com/ejoliet/popup popup ...`
+# runs the tool straight from GitHub with no clone. popup.py stays a standalone PEP 723
+# script too — both entry points are supported and tested (see README "Run it").
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "popup"
+version = "0.1.0"
+description = "Ephemeral URL for any file, folder, S3 object, or local web app"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Emmanuel Joliet" }]
+keywords = ["tunnel", "share", "ephemeral", "cloudflared", "renderer"]
+dependencies = []
+
+[project.optional-dependencies]
+# s3:// mode imports boto3 lazily; everything else is stdlib-only.
+s3 = ["boto3>=1.34"]
+
+[project.scripts]
+popup = "popup:main"
+
+[project.urls]
+Homepage = "https://github.com/ejoliet/popup"
+Source = "https://github.com/ejoliet/popup"
+
+# Single module at the repo root. The renderer assets (shell.html, renderers/fits.js) are
+# NOT shipped as data files: `make embed` inlines them into popup.py, so an installed copy
+# is self-contained and load_asset() falls back to the embedded strings.
+[tool.hatch.build.targets.wheel]
+only-include = ["popup.py"]
+
+[tool.hatch.build.targets.sdist]
+include = ["popup.py", "shell.html", "renderers", "Makefile", "README.md", "LICENSE"]

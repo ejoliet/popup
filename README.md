@@ -50,6 +50,7 @@ viewer browser ──HTTPS──> tunnel provider ──> popup.py (localhost)
 | code (`.py .js .ts .sql .yaml .json .sh …`) | highlight.js | auto-detect language from extension |
 | `.csv` | DuckDB-WASM table view | falls back to plain `<pre>` under 50 KB |
 | `.parquet` | DuckDB-WASM (Range-request reads) | works on multi-GB files via range proxy |
+| `.sqlite` / `.sqlite3` / `.db` | sql.js SQL console | schema sidebar (tables, views, columns, PKs, DDL), clickable example queries, editable SQL box (⌘/Ctrl+Enter runs); whole file is loaded into memory, so >256 MB falls back to a download link |
 | `.ipynb` | notebookjs | static render, no kernel |
 | `.fits` / `.asdf` | custom header/HDU viewer (JS) | reads first blocks via Range; reuse astrohead parsing logic ported to JS |
 | images / `.pdf` / `.html` | browser native passthrough | HTML served as-is (see `--coi`, `--spa`) |
@@ -91,6 +92,7 @@ Tunnel and sandbox layers researched 2026-08-14 (links in References); JS render
 ```
 popup/
 ├── popup.py            # the tool (single file, PEP 723 header)
+├── pyproject.toml      # packaging only, so `uvx --from git+…  popup` works without a clone
 ├── shell.html          # renderer shell — embedded into popup.py at release by make embed
 ├── renderers/fits.js   # custom FITS/ASDF header viewer (embedded likewise)
 ├── tests/
@@ -112,11 +114,30 @@ popup/
 
 ## Quick Start
 
+No clone needed — run it straight from GitHub:
+
+```bash
+# as a package (installs a `popup` entry point into a throwaway env)
+uvx --from git+https://github.com/ejoliet/popup popup README.md
+
+# or as a single PEP 723 script
+uv run https://raw.githubusercontent.com/ejoliet/popup/main/popup.py -- README.md
+
+# s3:// mode needs boto3
+uvx --from "popup[s3] @ git+https://github.com/ejoliet/popup" popup s3://mybucket/cat.parquet
+```
+
+Pin a revision with `git+https://github.com/ejoliet/popup@<tag-or-sha>`. Both remote forms use
+the renderer assets embedded in `popup.py` by `make embed` — nothing else is downloaded from the repo.
+
+From a clone (dev loop: `shell.html` and `renderers/fits.js` are read from disk, so edits are live):
+
 ```bash
 git clone https://github.com/ejoliet/popup && cd popup
 uv run popup.py README.md                      # 1. share this file
-uv run popup.py s3://mybucket/cat.parquet      # 2. private S3 → queryable URL
-uv run popup.py :8000 --password               # 3. expose running FastAPI /docs
+uv run popup.py catalog.sqlite                 # 2. SQLite → browser SQL console
+uv run popup.py s3://mybucket/cat.parquet      # 3. private S3 → queryable URL
+uv run popup.py :8000 --password               # 4. expose running FastAPI /docs
 ```
 
 ## Configuration Reference

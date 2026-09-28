@@ -1,5 +1,7 @@
 __pycache__/
 *.pyc
+.venv/
+dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -11,4 +13,5 @@ __pycache__/
 .smoke.pid
 # agent/orchestration state, not part of the tool
 .omc/
+.examples/
 .covhook/

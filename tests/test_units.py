@@ -144,6 +144,7 @@ def test_format_duration(popup, seconds, text):
         (".webp", "image"), (".svg", "image"), (".avif", "image"), (".bmp", "image"),
         (".py", "code"), (".js", "code"), (".ts", "code"), (".sql", "code"),
         (".yaml", "code"), (".sh", "code"), (".toml", "code"), (".txt", "code"),
+        (".sqlite", "sqlite"), (".sqlite3", "sqlite"), (".db", "sqlite"),
         (".xyzzy", "download"), ("", "download"), (".exe", "download"),
         (".json", "code"),   # README code row lists .json explicitly
     ],
@@ -153,6 +154,7 @@ def test_pick_renderer(popup, ext, renderer):
 
 
 def test_mime_overrides(popup):
+    assert popup.MIME_OVERRIDES[".sqlite"] == "application/vnd.sqlite3"
     assert popup.MIME_OVERRIDES[".wasm"] == "application/wasm"
     assert popup.MIME_OVERRIDES[".mjs"] == "text/javascript"
     assert popup.guess_type("bundle.wasm") == "application/wasm"
@@ -330,6 +332,14 @@ def test_adapter_start_without_binary_raises(popup, monkeypatch):
 def test_load_asset_prefers_disk_then_falls_back(popup):
     assert "__POPUP_CONFIG__" in popup.load_asset("shell.html", "EMBEDDED")
     assert popup.load_asset("no-such-asset.html", "EMBEDDED") == "EMBEDDED"
+
+
+@pytest.mark.parametrize("asset, symbol", [("shell.html", "SHELL_HTML"), ("renderers/fits.js", "FITS_JS")])
+def test_embedded_assets_match_disk(popup, asset, symbol):
+    """`uvx --from git+... popup` ships popup.py alone, so the embedded copies are what
+    remote users get.  Stale embeds are invisible in dev (load_asset prefers disk)."""
+    on_disk = (pathlib.Path(popup.__file__).parent / asset).read_text(encoding="utf-8")
+    assert getattr(popup, symbol) == on_disk, f"run `make embed` after editing {asset}"
 
 
 def test_gen_password_is_long_and_random(popup):
